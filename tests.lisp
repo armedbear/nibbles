@@ -461,7 +461,7 @@
 			  :element-type '(unsigned-byte 8)
 			  :if-does-not-exist :error)
     (funcall reader seq-type stream n-values)))
-
+#+(or) ;; original
 (defun write-sequence-test (seq-type reader writer
 			    bitsize signedp big-endian-p)
   (multiple-value-bind (byte-vector expected-values)
@@ -493,6 +493,46 @@
 							 (random block-size)))
 		       do (return :bad)
 		     finally (return :ok))
+	    (delete-file tmpfile)))))))
+
+(defun write-sequence-test (seq-type reader writer
+			    bitsize signedp big-endian-p)
+  (multiple-value-bind (byte-vector expected-values)
+      (generate-random-test bitsize signedp big-endian-p)
+    (declare (ignore byte-vector))
+    (let ((tmpfile (make-pathname :name "tmp" :defaults *output-directory*))
+	  (values-seq (coerce expected-values seq-type)))
+      (ensure-directories-exist tmpfile)
+      (flet ((run-random-test (values expected-start expected-end)
+	       (with-open-file (stream tmpfile :direction :output
+				       :element-type '(unsigned-byte 8)
+				       :if-does-not-exist :create
+				       :if-exists :supersede)
+		 (funcall writer values stream :start expected-start
+			  :end expected-end))
+	       (let ((file-contents (read-sequence-from-file tmpfile
+							     seq-type
+							     reader
+							     (- expected-end expected-start))))
+		 (mismatch values file-contents
+			   :start1 expected-start
+			   :end1 expected-end))))
+	(let* ((block-size (truncate (length expected-values) 4))
+	       (upper-quartile (* block-size 3)))
+	  (unwind-protect
+	       (loop repeat 32
+                     :with random-lower
+                       = (random block-size)
+                     :with random-upper
+                       = (+ upper-quartile (random block-size))
+	             :when (run-random-test values-seq
+                                            random-lower random-upper)
+		     :do (return (values :bad
+                                         :from random-lower
+                                         :to random-upper
+                                         :values values-seq))
+		     :finally (return :ok))
+            #+(or)
 	    (delete-file tmpfile)))))))
 
 (rtest:deftest :write-ub16/be
